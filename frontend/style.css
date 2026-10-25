@@ -67,6 +67,33 @@ h1 { margin: 0 0 4px; font-size: 18px; }
 .sliders input { width: 100%; accent-color: var(--accent); }
 .scale { display: flex; justify-content: space-between; color: var(--muted); margin-top: -4px; }
 
+.battery { margin: 4px 0 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.battery .hint { margin: 6px 0 10px; }
+.toggle { display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+.range-km { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.range-km input {
+  width: 64px;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--fg);
+  font: inherit;
+}
+.battery-note { padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: 13px; }
+.battery-note strong { color: var(--fg); }
+
+.swap-marker {
+  padding: 2px 7px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font: 600 12px/1.4 system-ui, sans-serif;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
 th:first-child, td:first-child { text-align: left; color: var(--muted); font-weight: 400; }

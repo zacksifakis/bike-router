@@ -5,3 +5,6 @@ scipy
 fastapi
 uvicorn[standard]
 httpx
+
+# Tests
+pytest

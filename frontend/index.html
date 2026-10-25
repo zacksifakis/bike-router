@@ -44,11 +44,28 @@
       </label>
     </section>
 
+    <section class="battery">
+      <label class="toggle"><input type="checkbox" id="battery-on"> E-bike battery mode</label>
+      <div id="battery-controls" hidden>
+        <p class="hint">Never ride beyond reach of a dock with a charged bike. Swaps are added when needed.</p>
+        <div class="sliders">
+          <label>
+            <span>Battery <output data-for="battery"></output></span>
+            <input type="range" id="battery" min="0" max="100" step="1" value="12">
+          </label>
+        </div>
+        <label class="range-km">Full-charge range
+          <input type="number" id="range_km" min="5" max="200" step="5" value="40"> km
+        </label>
+      </div>
+    </section>
+
     <section id="results" hidden>
       <table>
         <thead><tr><th></th><th class="pref">Your route</th><th class="short">Shortest</th></tr></thead>
         <tbody id="stats"></tbody>
       </table>
+      <p class="battery-note" id="battery-note" hidden></p>
       <p class="streets" id="streets"></p>
     </section>
 

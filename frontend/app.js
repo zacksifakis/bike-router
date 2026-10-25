@@ -41,8 +41,15 @@ map.on("click", (e) => {
   settingStart = !settingStart;
 });
 
+const batteryOn = () => document.getElementById("battery-on").checked;
+
 function weights() {
-  return Object.fromEntries(SLIDERS.map((id) => [id, document.getElementById(id).value]));
+  const w = Object.fromEntries(SLIDERS.map((id) => [id, document.getElementById(id).value]));
+  if (batteryOn()) {
+    w.battery = document.getElementById("battery").value;
+    w.range_km = document.getElementById("range_km").value;
+  }
+  return w;
 }
 
 function showValues() {
@@ -53,18 +60,25 @@ function showValues() {
     if (v === 0) text = "off";
     document.querySelector(`output[data-for="${id}"]`).textContent = text;
   }
+  document.querySelector('output[data-for="battery"]').textContent = `${document.getElementById("battery").value}%`;
 }
 
 showValues();
 
 let timer;
-for (const id of SLIDERS) {
+for (const id of [...SLIDERS, "battery"]) {
   document.getElementById(id).addEventListener("input", () => {
     showValues();
     clearTimeout(timer);
     timer = setTimeout(route, 200);
   });
 }
+document.getElementById("battery-on").addEventListener("change", () => {
+  document.getElementById("battery-controls").hidden = !batteryOn();
+  route();
+});
+document.getElementById("range_km").addEventListener("change", route);
+
 for (const btn of document.querySelectorAll("[data-preset]")) {
   btn.addEventListener("click", () => {
     const p = PRESETS[btn.dataset.preset];
@@ -84,6 +98,75 @@ const ROWS = [
   ["Farthest from a dock", (r) => `${r.max_dock_gap_m} m`],
 ];
 
+const BATTERY_ROWS = [
+  ["Battery on arrival", (b) => `${b.arrive_pct}%`],
+  ["Bike swaps", (b) => b.swaps.length || "none"],
+  ["Closest call", (b) => `${fmtKm(b.min_margin_m)} spare`],
+];
+
+const escape = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// Route colour by charge left: red when nearly empty, amber when low, green otherwise.
+const CHARGE_COLORS = [[0, [220, 38, 38]], [20, [245, 158, 11]], [50, [15, 123, 95]]];
+function chargeColor(pct) {
+  for (let i = 1; i < CHARGE_COLORS.length; i++) {
+    const [p0, c0] = CHARGE_COLORS[i - 1], [p1, c1] = CHARGE_COLORS[i];
+    if (pct <= p1) {
+      const t = Math.max(0, (pct - p0) / (p1 - p0));
+      return `rgb(${c0.map((c, k) => Math.round(c + (c1[k] - c) * t)).join(",")})`;
+    }
+  }
+  return `rgb(${CHARGE_COLORS.at(-1)[1].join(",")})`;
+}
+
+const PLAIN_LINE = ["interpolate", ["linear"], ["line-progress"], 0, "#0f7b5f", 1, "#0f7b5f"];
+
+function chargeGradient(profile) {
+  // profile: [fraction along route, charge %] breakpoints; a swap shows up as two points at the same fraction.
+  const expr = ["interpolate", ["linear"], ["line-progress"]];
+  let last = -1;
+  for (let k = 0; k + 1 < profile.length; k++) {
+    const [f0, p0] = profile[k], [f1, p1] = profile[k + 1];
+    if (f1 <= f0) continue;
+    for (let s = 0; s <= 6; s++) {
+      const f = Math.min(1, Math.max(f0 + (f1 - f0) * s / 6, last + 1e-6));
+      if (f <= last) continue;
+      expr.push(f, chargeColor(p0 + (p1 - p0) * s / 6));
+      last = f;
+    }
+  }
+  return expr.length >= 7 ? expr : PLAIN_LINE;
+}
+
+let swapMarkers = [];
+function showBattery(b) {
+  for (const m of swapMarkers) m.remove();
+  swapMarkers = [];
+  const note = document.getElementById("battery-note");
+  map.setPaintProperty("preferred", "line-gradient", b ? chargeGradient(b.profile) : PLAIN_LINE);
+  if (!b) {
+    note.hidden = true;
+    return;
+  }
+  for (const s of b.swaps) {
+    const el = document.createElement("div");
+    el.className = "swap-marker";
+    el.textContent = "Swap";
+    swapMarkers.push(new maplibregl.Marker({ element: el }).setLngLat([s.lon, s.lat]).addTo(map));
+  }
+  const parts = b.swaps.map((s) =>
+    `Swap at <strong>${escape(s.name)}</strong> after ${fmtKm(s.at_m)} (${s.ebikes} e-bikes there now).`);
+  const w = b.without;
+  if (w.unsafe_at_m != null) {
+    parts.push(`Without battery mode you'd be out of reach of any dock after ${fmtKm(w.unsafe_at_m)}` +
+      (w.empty_at_m != null ? ` and run flat at ${fmtKm(w.empty_at_m)}.` : "."));
+  } else {
+    parts.push("Your normal route is already safe on this charge.");
+  }
+  note.innerHTML = parts.join(" ");
+  note.hidden = false;
+}
+
 let seq = 0;
 let fitted = false; // zoom to the first route only, then leave the view to the user
 async function route() {
@@ -100,6 +183,7 @@ async function route() {
     hint.textContent = body.detail || "Routing failed.";
     hint.classList.add("error");
     for (const name of ["shortest", "preferred"]) map.getSource(name).setData({ type: "FeatureCollection", features: [] });
+    showBattery(null);
     document.getElementById("results").hidden = true;
     return;
   }
@@ -118,8 +202,11 @@ async function route() {
     fitted = true;
   }
 
+  const b = body.preferred.battery;
   document.getElementById("stats").innerHTML = ROWS.map(([label, f]) =>
-    `<tr><td>${label}</td><td>${f(body.preferred)}</td><td>${f(body.shortest)}</td></tr>`).join("");
+    `<tr><td>${label}</td><td>${f(body.preferred)}</td><td>${f(body.shortest)}</td></tr>`).join("") +
+    (b ? BATTERY_ROWS.map(([label, f]) => `<tr><td>${label}</td><td>${f(b)}</td><td>–</td></tr>`).join("") : "");
+  showBattery(b);
   const extra = body.preferred.distance_m - body.shortest.distance_m;
   document.getElementById("streets").textContent =
     (extra > 20 ? `+${fmtKm(extra)} detour. ` : "") + "Via " + (body.preferred.streets.join(" → ") || "unnamed paths");
@@ -140,7 +227,10 @@ async function loadStations() {
 
 map.on("load", () => {
   const empty = { type: "FeatureCollection", features: [] };
-  for (const name of ["shortest", "preferred", "stations"]) map.addSource(name, { type: "geojson", data: empty });
+  for (const name of ["shortest", "preferred", "stations"]) {
+    // lineMetrics lets the preferred route be coloured by charge along its length.
+    map.addSource(name, { type: "geojson", data: empty, lineMetrics: name === "preferred" });
+  }
 
   map.addLayer({
     id: "shortest", type: "line", source: "shortest",
@@ -150,7 +240,7 @@ map.on("load", () => {
   map.addLayer({
     id: "preferred", type: "line", source: "preferred",
     layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": "#0f7b5f", "line-width": 6, "line-opacity": 0.9 },
+    paint: { "line-gradient": PLAIN_LINE, "line-width": 6, "line-opacity": 0.9 },
   });
   map.addLayer({
     id: "stations", type: "circle", source: "stations",

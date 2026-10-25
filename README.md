@@ -3,6 +3,7 @@
 Bike directions that follow **your** priorities, not just the shortest line.
 
 ![Scenic route along Lake Monona vs. the shortest route through downtown Madison](docs/screenshot.jpg)
+
 Mapping apps give cyclists one or two route options. This one lets you say what you
 care about and see what it costs you:
 
@@ -11,6 +12,8 @@ care about and see what it costs you:
 - **Crowds** – seek busy, lively streets, or avoid them
 - **Near bike-share docks** – stay close to stations that have bikes or open docks
   *right now*, so a dead e-bike battery or a mechanical problem is a short walk from a swap
+- **E-bike battery mode** – a hard guarantee instead of a preference: enter your charge and the
+  route never takes you beyond reach of a dock with a charged bike, adding swaps when needed
 
 It's built for Madison, WI with live [Madison BCycle](https://madison.bcycle.com) dock data,
 but works for any city in OpenStreetMap and any bike-share system that publishes
@@ -28,6 +31,7 @@ OpenStreetMap ──► scripts/build_graph.py ──► data/graph.npz
                                                       ▼
 GBFS feed (live) ─────────────────────────► backend/app.py ──► frontend/
                   distance to nearest usable dock    weighted Dijkstra   MapLibre map
+                                                     + battery.py (A* over docks)
 ```
 
 **Scoring (offline).** Each street segment gets three scores between 0 and 1:
@@ -50,6 +54,42 @@ live GBFS feed, capped at 800 m. Weights go from 0 (ignore) to 3 (a segment that
 the preference counts as four times its length). The weighted graph is solved with SciPy's
 Dijkstra, which takes well under a second for all of Madison.
 
+## E-bike battery mode
+
+<img src="docs/battery.jpg" alt="Low-battery route that swaps bikes downtown, coloured from amber to green" width="360" align="right">
+
+Shared e-bikes die mid-ride. Turn on battery mode, set your charge, and the router guarantees:
+
+> At every point of the ride, the charge left is enough to reach a dock where you can swap
+> for a charged bike.
+
+If the destination is out of range, the route goes through a dock on the way and tells you
+where to swap. The line is coloured by charge left, and the app shows how close the ride
+cuts it and where your normal route would have stranded you ("out of reach of any dock after
+4.57 km, flat at 4.80 km").
+
+This is the electric-car charging-stop problem at bike scale. [`backend/battery.py`](backend/battery.py)
+solves it in two levels:
+
+1. **Leg search.** From a stop with range *r*, Dijkstra that never enters a node *v* where
+   `distance ridden to v + distance from v to the nearest dock > r`. Offending nodes are pruned
+   and the search re-run until the tree is clean. On plain distance this is **exact**: it reaches
+   a node if and only if some safe path exists. A preference-weighted version gives nicer legs and
+   falls back to the exact one when it misses.
+2. **Stop search.** A\* over {start, docks with a charged bike and an open slot, destination}, where
+   each edge is a safe leg. Legs cost their preference-weighted length, swaps add a fixed
+   penalty, and the heuristic is the unconstrained cost-to-go (a lower bound, so A\* stays optimal
+   over these legs).
+
+Distance to the nearest dock is a multi-source Dijkstra on the reversed graph, recomputed from
+the live feed on every request. Trips across Madison plan in 0.2–2 seconds.
+
+Assumptions: energy use is proportional to distance (Madison is fairly flat), the full-charge
+range is yours to set (default 40 km), and a swapped bike is at 90%, because GBFS doesn't
+report each docked bike's charge.
+
+<br clear="right">
+
 ## Run it locally
 
 Requires Python 3.10+.
@@ -70,6 +110,15 @@ uvicorn backend.app:app --reload
 
 Open <http://localhost:8000>. Click to set a start and destination, then move the sliders.
 
+### Tests
+
+```bash
+python -m pytest
+```
+
+The battery tests run on small hand-built graphs, including a brute-force check against every
+simple path in 25 random graphs that the leg search finds exactly the safe shortest distances.
+
 ### Another city
 
 ```bash
@@ -87,11 +136,16 @@ download and need more memory.
 Returns `preferred` and `shortest`, each with a GeoJSON `geometry`, `distance_m`,
 `duration_min`, `bike_infra_pct`, `green_pct`, `lively_pct`, `max_dock_gap_m` and `streets`.
 
+Add `&battery=12&range_km=40` for battery mode. `preferred` then also has a `battery` object:
+`swaps` (where and after how far), `arrive_pct`, `min_margin_m`, a charge `profile` along the
+route, and `without`: where the ordinary route would leave you out of reach of a dock and empty.
+Returns 422 with an explanation when no safe route exists.
+
 `GET /api/stations` returns live bike-share stations with bike, e-bike and dock counts.
 
 ## Ideas for later
 
-- **Battery-aware e-bike mode:** given the remaining charge, guarantee a dock within reach at every point
+- **Hills in battery mode:** charge used climbing, not just distance
 - **Natural-language preferences:** "scenic, but I need to be there by 5" → weights
 - **Hills:** add elevation so riders can avoid climbs
 - **Safety:** crash data, speed limits and street lighting (weighted more after dark)

@@ -10,6 +10,9 @@ Every edge's cost is its length scaled up by how badly it misses each preference
 A weight of 0 ignores that preference; 3 means a segment that fully misses it
 "feels" four times as long. Dock penalty is computed live from the GBFS feed.
 
+With a battery level set, the route must also never leave the rider unable
+to reach a dock; see battery.py.
+
 Run:  uvicorn backend.app:app --reload
 """
 
@@ -23,9 +26,10 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra
 from scipy.spatial import cKDTree
+
+from .battery import BatteryError, dock_reach, first_unsafe, leg_profile, plan
+from .graph import Graph, to_xy
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -36,59 +40,19 @@ GBFS_CACHE_S = 60
 DOCK_FAR_M = 800        # past this distance from a usable dock the penalty maxes out
 SNAP_MAX_M = 500        # refuse to route from points this far from the network
 RIDE_SPEED_MS = 4.2     # ~15 km/h, a relaxed city pace
-EARTH_R = 6_371_000
+DOCK_SNAP_M = 150       # stations farther than this from the street network are ignored
+SWAP_CHARGE = 0.9       # GBFS doesn't report each bike's charge; assume a docked bike is at 90%
 
 
-def to_xy(lat, lon):
-    """Equirectangular projection in metres; plenty accurate across one city."""
-    lat0 = np.radians(43.07)
-    return np.column_stack([np.radians(lon) * EARTH_R * np.cos(lat0), np.radians(lat) * EARTH_R])
-
-
-class Graph:
-    def __init__(self, path):
-        z = np.load(path)
-        self.node_lat, self.node_lon = z["node_lat"], z["node_lon"]
-        self.u, self.v = z["edge_u"], z["edge_v"]
-        self.length, self.bike, self.green, self.lively = z["length"], z["bike"], z["green"], z["lively"]
-        self.mid_xy = to_xy(z["mid_lat"], z["mid_lon"])
-        self.coords, self.offsets = z["coords"], z["offsets"]
-        self.names = json.loads((path.parent / "edge_names.json").read_text())
-        self.n = len(self.node_lat)
-        self.node_tree = cKDTree(to_xy(self.node_lat, self.node_lon))
-
-    def snap(self, lat, lon):
-        dist, idx = self.node_tree.query(to_xy(np.array([lat]), np.array([lon]))[0])
-        if dist > SNAP_MAX_M:
-            raise HTTPException(400, f"Point is {dist:.0f} m from the nearest bikeable street; pick somewhere in Madison.")
-        return int(idx)
-
-    def shortest(self, cost, src, dst):
-        # Parallel edges between the same nodes would be summed by csr_matrix; keep the cheapest.
-        order = np.lexsort((cost, self.v, self.u))
-        u, v, c = self.u[order], self.v[order], cost[order]
-        keep = np.ones(len(u), dtype=bool)
-        keep[1:] = (u[1:] != u[:-1]) | (v[1:] != v[:-1])
-        edge_ids = order[keep]
-        m = csr_matrix((c[keep], (u[keep], v[keep])), shape=(self.n, self.n))
-        _, pred = dijkstra(m, indices=src, return_predecessors=True)
-        if pred[dst] < 0 and src != dst:
-            raise HTTPException(404, "No bikeable route between those points.")
-
-        lookup = {(int(a), int(b)): int(e) for a, b, e in zip(u[keep], v[keep], edge_ids)}
-        path, node = [], dst
-        while node != src:
-            prev = pred[node]
-            path.append(lookup[(int(prev), int(node))])
-            node = prev
-        return path[::-1]
-
-    def edge_coords(self, e):
-        return self.coords[self.offsets[e]:self.offsets[e + 1]]
-
-
-graph = Graph(DATA / "graph.npz")
+graph = Graph.load(DATA / "graph.npz")
 _gbfs = {"at": 0.0, "stations": []}
+
+
+def snap(lat, lon):
+    idx, dist = graph.snap(lat, lon)
+    if dist[0] > SNAP_MAX_M:
+        raise HTTPException(400, f"Point is {dist[0]:.0f} m from the nearest bikeable street; pick somewhere in Madison.")
+    return int(idx[0])
 
 
 def gbfs_stations():
@@ -153,6 +117,53 @@ def summarize(path, dock_dist):
 app = FastAPI(title="Bike Router")
 
 
+def swap_docks(stations):
+    """Stations where you could trade your bike for a charged one, snapped to the graph."""
+    usable = [s for s in stations if s["active"] and s["docks"] > 0 and s["ebikes"] > 0]
+    if not usable:
+        return [], []
+    idx, dist = graph.snap([s["lat"] for s in usable], [s["lon"] for s in usable])
+    seen, nodes, kept = set(), [], []
+    for s, i, d in zip(usable, idx, dist):
+        if d <= DOCK_SNAP_M and i not in seen:
+            seen.add(i)
+            nodes.append(int(i))
+            kept.append(s)
+    return nodes, kept
+
+
+def battery_route(cost_net, len_net, src, dst, unconstrained, battery, range_km, dock_dist):
+    stations = gbfs_stations()
+    nodes, docks = swap_docks(stations)
+    full = range_km * 1000
+    start_range, swap_range = full * battery / 100, full * SWAP_CHARGE
+    try:
+        legs = plan(cost_net, len_net, src, dst, nodes, start_range, swap_range)
+    except BatteryError as e:
+        raise HTTPException(422, str(e))
+
+    reach = dock_reach(len_net, nodes)
+    edges = [e for leg in legs for e in leg.edges]
+    profile, margin = leg_profile(graph, legs, reach)
+    swaps, done = [], 0.0
+    for leg in legs:
+        done += graph.length[leg.edges].sum()
+        if leg.swap_at is not None:
+            d = docks[leg.swap_at]
+            swaps.append({"name": d["name"], "lat": d["lat"], "lon": d["lon"], "at_m": round(done), "ebikes": d["ebikes"]})
+    unsafe_at, empty_at = first_unsafe(graph, unconstrained, start_range, reach)
+
+    out = summarize(edges, dock_dist)
+    out["battery"] = {
+        "profile": [[round(f, 5), round(100 * r / full, 1)] for f, r in profile],
+        "arrive_pct": round(100 * profile[-1][1] / full),
+        "swaps": swaps,
+        "min_margin_m": round(margin),
+        "without": {"unsafe_at_m": unsafe_at and round(unsafe_at), "empty_at_m": empty_at and round(empty_at)},
+    }
+    return out
+
+
 @app.get("/api/route")
 def route(
     from_lat: float, from_lon: float, to_lat: float, to_lon: float,
@@ -160,8 +171,10 @@ def route(
     green: float = Query(0, ge=0, le=3, description="prefer parks, woods and water"),
     lively: float = Query(0, ge=-3, le=3, description=">0 seek busy streets, <0 avoid them"),
     dock: float = Query(0, ge=0, le=3, description="stay near bike-share stations"),
+    battery: float | None = Query(None, ge=0, le=100, description="e-bike charge %; enables battery-safe routing"),
+    range_km: float = Query(40, gt=0, le=200, description="range of a fully charged e-bike"),
 ):
-    src, dst = graph.snap(from_lat, from_lon), graph.snap(to_lat, to_lon)
+    src, dst = snap(from_lat, from_lon), snap(to_lat, to_lon)
     dock_dist = dock_distance(gbfs_stations())
     dock_pen = np.clip(dock_dist / DOCK_FAR_M, 0, 1)
     lively_pen = (1 - graph.lively) if lively >= 0 else graph.lively
@@ -169,9 +182,16 @@ def route(
     cost = graph.length * (
         1 + bike * (1 - graph.bike) + green * (1 - graph.green) + abs(lively) * lively_pen + dock * dock_pen
     )
-    preferred = graph.shortest(cost, src, dst)
-    shortest = graph.shortest(graph.length.astype(float), src, dst)
-    return {"preferred": summarize(preferred, dock_dist), "shortest": summarize(shortest, dock_dist)}
+    cost_net, len_net = graph.network(cost), graph.network(graph.length)
+    preferred, shortest = cost_net.shortest(src, dst), len_net.shortest(src, dst)
+    if preferred is None:
+        raise HTTPException(404, "No bikeable route between those points.")
+
+    if battery is not None:
+        chosen = battery_route(cost_net, len_net, src, dst, preferred, battery, range_km, dock_dist)
+    else:
+        chosen = summarize(preferred, dock_dist)
+    return {"preferred": chosen, "shortest": summarize(shortest, dock_dist)}
 
 
 @app.get("/api/stations")
