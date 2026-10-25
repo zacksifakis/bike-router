@@ -1,0 +1,7 @@
+osmnx>=2.0
+networkx
+numpy
+scipy
+fastapi
+uvicorn[standard]
+httpx

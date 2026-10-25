@@ -1,0 +1,92 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1b1f24;
+  --muted: #5f6b7a;
+  --line: #e3e7ec;
+  --accent: #0f7b5f;
+  --short: #8a94a3;
+  --chip: #f2f5f7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171b20;
+    --fg: #e8ecf0;
+    --muted: #9aa5b1;
+    --line: #2b323a;
+    --accent: #3ec99c;
+    --short: #8a94a3;
+    --chip: #222830;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+#map { position: absolute; inset: 0; }
+
+#panel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 340px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
+}
+
+h1 { margin: 0 0 4px; font-size: 18px; }
+.hint { margin: 0 0 12px; color: var(--muted); }
+.hint.error { color: #e5484d; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.presets button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.presets button:hover { border-color: var(--accent); }
+
+.sliders label { display: block; margin-bottom: 12px; }
+.sliders label > span:first-child { display: flex; justify-content: space-between; font-weight: 500; }
+.sliders output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sliders input { width: 100%; accent-color: var(--accent); }
+.scale { display: flex; justify-content: space-between; color: var(--muted); margin-top: -4px; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 0; text-align: right; border-bottom: 1px solid var(--line); }
+th:first-child, td:first-child { text-align: left; color: var(--muted); font-weight: 400; }
+th.pref { color: var(--accent); }
+th.short { color: var(--short); }
+.streets { color: var(--muted); font-size: 13px; }
+
+footer { margin-top: 12px; font-size: 12px; color: var(--muted); }
+footer a { color: inherit; }
+
+.maplibregl-popup-content { color: #1b1f24; font: 13px/1.4 system-ui, sans-serif; }
+
+@media (max-width: 600px) {
+  #panel {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-height: 55%;
+    border-radius: 12px 12px 0 0;
+  }
+  .maplibregl-ctrl-bottom-right { bottom: 55%; }
+}

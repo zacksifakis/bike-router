@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bike Router</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <aside id="panel">
+    <header>
+      <h1>Bike Router</h1>
+      <p class="hint" id="hint">Click the map to set a start, then a destination. Drag the pins to adjust.</p>
+    </header>
+
+    <section class="presets" aria-label="Presets">
+      <button data-preset="fastest">Fastest</button>
+      <button data-preset="commute">Commute</button>
+      <button data-preset="scenic">Scenic</button>
+      <button data-preset="bikeshare">Bike-share safe</button>
+      <button data-preset="buzz">City buzz</button>
+    </section>
+
+    <section class="sliders">
+      <label>
+        <span>Bike paths &amp; lanes <output data-for="bike"></output></span>
+        <input type="range" id="bike" min="0" max="3" step="0.25" value="1.5">
+      </label>
+      <label>
+        <span>Nature &amp; water <output data-for="green"></output></span>
+        <input type="range" id="green" min="0" max="3" step="0.25" value="0">
+      </label>
+      <label>
+        <span>Crowds <output data-for="lively"></output></span>
+        <input type="range" id="lively" min="-3" max="3" step="0.25" value="0">
+        <span class="scale"><small>quiet</small><small>lively</small></span>
+      </label>
+      <label>
+        <span>Near bike-share docks <output data-for="dock"></output></span>
+        <input type="range" id="dock" min="0" max="3" step="0.25" value="0">
+      </label>
+    </section>
+
+    <section id="results" hidden>
+      <table>
+        <thead><tr><th></th><th class="pref">Your route</th><th class="short">Shortest</th></tr></thead>
+        <tbody id="stats"></tbody>
+      </table>
+      <p class="streets" id="streets"></p>
+    </section>
+
+    <footer>
+      Dock data: <a href="https://madison.bcycle.com" target="_blank" rel="noopener">Madison BCycle</a> (GBFS, live).
+      Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+    </footer>
+  </aside>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
