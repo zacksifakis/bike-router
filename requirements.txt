@@ -8,3 +8,6 @@ httpx
 
 # Tests
 pytest
+
+# Deploying (scripts/deploy_space.py)
+huggingface_hub
