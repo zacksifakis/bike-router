@@ -1,6 +1,8 @@
 # Bike Router
 
 Bike directions that follow **your** priorities, not just the shortest line.
+
+![Scenic route along Lake Monona vs. the shortest route through downtown Madison](docs/screenshot.jpg)
 Mapping apps give cyclists one or two route options. This one lets you say what you
 care about and see what it costs you:
 
