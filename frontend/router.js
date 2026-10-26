@@ -96,7 +96,7 @@ export async function loadGraph(base) {
   return new Graph(arrays, meta.names);
 }
 
-class Graph {
+export class Graph {
   constructor(a, names) {
     Object.assign(this, a);
     this.names = names;

@@ -1,5 +1,7 @@
 # Bike Router
 
+[![tests](https://github.com/zacksifakis/bike-router/actions/workflows/tests.yml/badge.svg)](https://github.com/zacksifakis/bike-router/actions/workflows/tests.yml)
+
 Bike directions that follow **your** priorities, not just the shortest line.
 
 **[Try the live demo →](https://zsif-bike-router.static.hf.space)** (Madison, WI; runs entirely in your browser)
@@ -143,6 +145,9 @@ python -m pytest
 
 The battery tests run on small hand-built graphs, including a brute-force check against every
 simple path in 25 random graphs that the leg search finds exactly the safe shortest distances.
+With Node.js installed, a further test runs 40 random battery problems through both the Python
+planner and the browser's `frontend/router.js` and checks they agree. CI runs everything on
+every push.
 
 ### Another city
 

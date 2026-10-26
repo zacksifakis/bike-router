@@ -68,9 +68,10 @@ def tree_sum(tree, values):
 def safe_tree(net, src, start_range, reach):
     """Shortest-path tree on net from src that never strands the rider.
 
-    Nodes whose tree path breaks the rule are removed and the search re-run
-    until the tree is clean. Removing a node only makes other paths longer, so
-    a node that breaks the rule once can never become safe again.
+    The first node on each branch that breaks the rule is removed and the
+    search re-run until the tree is clean. Such a node was reached by the
+    cheapest path through allowed nodes; on plain distance that is also the
+    shortest, so it can never become safe and the result is exact.
     """
     graph = net.graph
     budget = start_range - reach + TOL
@@ -87,7 +88,10 @@ def safe_tree(net, src, start_range, reach):
         if not bad.any():
             tree.dist = np.where(np.isfinite(along), dist, np.inf)
             return tree
-        allowed &= ~bad
+        # Only remove the first bad node on each branch: nodes below it may be fine once
+        # they're reached another way, so they get re-checked in the next round.
+        bad_on_path = np.rint(tree_sum(tree, bad[graph.v].astype(float)))
+        allowed &= ~(bad & (bad_on_path == 1))
 
 
 @dataclass
