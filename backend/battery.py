@@ -104,6 +104,8 @@ def plan(cost_net, len_net, src, dst, docks, start_range, swap_range):
     Returns a list of Legs; raises BatteryError when no safe route exists.
     """
     reach = dock_reach(len_net, docks)
+    if not np.isfinite(reach[src]):
+        raise BatteryError("No dock with a charged bike can be reached from here.")
     if start_range + TOL < reach[src]:
         raise BatteryError(
             f"Not enough charge: the nearest dock is {fmt_dist(reach[src])} away "

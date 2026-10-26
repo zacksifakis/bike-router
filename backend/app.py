@@ -24,7 +24,6 @@ from pathlib import Path
 import httpx
 import numpy as np
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from scipy.spatial import cKDTree
 
@@ -199,9 +198,6 @@ def stations():
     return gbfs_stations()
 
 
-app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
-
-
-@app.get("/")
-def index():
-    return FileResponse(ROOT / "frontend" / "index.html")
+# The map page routes in the browser (frontend/router.js); the API above is the reference
+# implementation. Run scripts/export_static.py first so frontend/data/ exists.
+app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")

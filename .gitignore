@@ -10,3 +10,4 @@ cache/
 
 # Local editor/agent config
 .claude/
+frontend/data/

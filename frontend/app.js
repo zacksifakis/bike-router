@@ -7,6 +7,27 @@ const PRESETS = {
 };
 const SLIDERS = ["bike", "green", "lively", "dock"];
 
+// Any GBFS feed works here, including Lyft's (Citi Bike, Divvy, Bay Wheels, ...).
+const GBFS_URL = "https://gbfs.bcycle.com/1/bcycle_madison/gbfs.json";
+
+// Routing runs in a worker (router.js) so the page stays responsive.
+const worker = new Worker("worker.js", { type: "module" });
+const pending = new Map();
+let nextId = 0;
+worker.onmessage = ({ data }) => {
+  pending.get(data.id)(data);
+  pending.delete(data.id);
+};
+function callRouter(params) {
+  const id = nextId++;
+  return new Promise((resolve) => {
+    pending.set(id, resolve);
+    worker.postMessage({ id, params, stations });
+  });
+}
+
+let stations = [];
+
 // Demo trip: Memorial Union to Olbrich Botanical Gardens, across the isthmus.
 let start = [-89.3999, 43.0766];
 let end = [-89.3369, 43.0928];
@@ -44,10 +65,10 @@ map.on("click", (e) => {
 const batteryOn = () => document.getElementById("battery-on").checked;
 
 function weights() {
-  const w = Object.fromEntries(SLIDERS.map((id) => [id, document.getElementById(id).value]));
+  const w = Object.fromEntries(SLIDERS.map((id) => [id, Number(document.getElementById(id).value)]));
   if (batteryOn()) {
-    w.battery = document.getElementById("battery").value;
-    w.range_km = document.getElementById("range_km").value;
+    w.battery = Number(document.getElementById("battery").value);
+    w.rangeKm = Number(document.getElementById("range_km").value);
   }
   return w;
 }
@@ -172,15 +193,12 @@ let fitted = false; // zoom to the first route only, then leave the view to the 
 async function route() {
   if (!start || !end || !map.getSource("preferred")) return; // the load handler routes once sources exist
   const id = ++seq;
-  const params = new URLSearchParams({
-    from_lat: start[1], from_lon: start[0], to_lat: end[1], to_lon: end[0], ...weights(),
-  });
-  const res = await fetch(`/api/route?${params}`);
+  const res = await callRouter({ from: [start[1], start[0]], to: [end[1], end[0]], ...weights() });
   if (id !== seq) return; // a newer request superseded this one
-  const body = await res.json();
+  const body = res.body;
   const hint = document.getElementById("hint");
   if (!res.ok) {
-    hint.textContent = body.detail || "Routing failed.";
+    hint.textContent = res.detail;
     hint.classList.add("error");
     for (const name of ["shortest", "preferred"]) map.getSource(name).setData({ type: "FeatureCollection", features: [] });
     showBattery(null);
@@ -213,8 +231,30 @@ async function route() {
   document.getElementById("results").hidden = false;
 }
 
+async function fetchStations() {
+  const root = await (await fetch(GBFS_URL)).json();
+  const urls = Object.fromEntries(Object.values(root.data)[0].feeds.map((f) => [f.name, f.url]));
+  const [info, status] = await Promise.all(
+    [urls.station_information, urls.station_status].map((u) => fetch(u).then((r) => r.json())));
+  const byId = new Map(status.data.stations.map((s) => [s.station_id, s]));
+  return info.data.stations.map((s) => {
+    const st = byId.get(s.station_id) || {};
+    return {
+      id: s.station_id, name: s.name, lat: s.lat, lon: s.lon,
+      bikes: st.num_bikes_available ?? 0, docks: st.num_docks_available ?? 0,
+      // BCycle nests e-bike counts by type; Lyft feeds use a flat field.
+      ebikes: st.num_bikes_available_types?.electric ?? st.num_ebikes_available ?? 0,
+      active: Boolean(st.is_renting),
+    };
+  });
+}
+
 async function loadStations() {
-  const stations = await (await fetch("/api/stations")).json();
+  try {
+    stations = await fetchStations();
+  } catch {
+    return; // keep showing the last good snapshot
+  }
   map.getSource("stations").setData({
     type: "FeatureCollection",
     features: stations.map((s) => ({
@@ -265,7 +305,6 @@ map.on("load", () => {
 
   startMarker.setLngLat(start).addTo(map);
   endMarker.setLngLat(end).addTo(map);
-  loadStations();
   setInterval(loadStations, 60_000);
-  route();
+  loadStations().then(route);
 });

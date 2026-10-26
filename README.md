@@ -2,6 +2,8 @@
 
 Bike directions that follow **your** priorities, not just the shortest line.
 
+**[Try the live demo →](https://zsif-bike-router.static.hf.space)** (Madison, WI; runs entirely in your browser)
+
 ![Scenic route along Lake Monona vs. the shortest route through downtown Madison](docs/screenshot.jpg)
 
 Mapping apps give cyclists one or two route options. This one lets you say what you
@@ -34,6 +36,13 @@ GBFS feed (live) ─────────────────────
                                                      + battery.py (A* over docks)
 ```
 
+The Python backend is the reference implementation, with the tests and an HTTP API. For the
+demo, [`frontend/router.js`](frontend/router.js) ports the same routing and battery planner to
+JavaScript and runs it in a Web Worker, so the site is just static files: the graph ships as an
+8.7 MB binary (3.2 MB gzipped) and dock data comes straight from the GBFS feed. Across 90 random
+trips the two versions pick the same routes and swaps, with distances within 2 m (the browser
+stores coordinates as 32-bit floats).
+
 **Scoring (offline).** Each street segment gets three scores between 0 and 1:
 
 | Score | Source | Rule |
@@ -51,8 +60,8 @@ cost = length × (1 + w_bike·(1 − bike) + w_green·(1 − green) + |w_lively|
 
 `dock_penalty` is the distance to the nearest station with a bike or an open dock, from the
 live GBFS feed, capped at 800 m. Weights go from 0 (ignore) to 3 (a segment that fully misses
-the preference counts as four times its length). The weighted graph is solved with SciPy's
-Dijkstra, which takes well under a second for all of Madison.
+the preference counts as four times its length). A route across Madison takes about 50 ms in
+the browser.
 
 ## E-bike battery mode
 
@@ -73,7 +82,8 @@ solves it in two levels:
 
 1. **Leg search.** From a stop with range *r*, Dijkstra that never enters a node *v* where
    `distance ridden to v + distance from v to the nearest dock > r`. Offending nodes are pruned
-   and the search re-run until the tree is clean. On plain distance this is **exact**: it reaches
+   and the search re-run until the tree is clean (the browser version prunes during a single
+   pass, which gives the same result on distance). On plain distance this is **exact**: it reaches
    a node if and only if some safe path exists. A preference-weighted version gives nicer legs and
    falls back to the exact one when it misses.
 2. **Stop search.** A\* over {start, docks with a charged bike and an open slot, destination}, where
@@ -82,7 +92,7 @@ solves it in two levels:
    over these legs).
 
 Distance to the nearest dock is a multi-source Dijkstra on the reversed graph, recomputed from
-the live feed on every request. Trips across Madison plan in 0.2–2 seconds.
+the live feed on every request. Battery trips across Madison plan in well under a second.
 
 Assumptions: energy use is proportional to distance (Madison is fairly flat), the full-charge
 range is yours to set (default 40 km), and a swapped bike is at 90%, because GBFS doesn't
@@ -105,10 +115,25 @@ python scripts/build_graph.py
 # If the public Overpass server is busy, use a mirror:
 # python scripts/build_graph.py --overpass-url https://overpass.private.coffee/api
 
+# Pack the graph for the browser router
+python scripts/export_static.py
+
 uvicorn backend.app:app --reload
 ```
 
 Open <http://localhost:8000>. Click to set a start and destination, then move the sliders.
+The page only needs static files, so `python -m http.server -d frontend` works too; uvicorn
+also serves the API below.
+
+### Deploy
+
+```bash
+huggingface-cli login            # once, with a write token
+python scripts/deploy_space.py
+```
+
+This publishes `frontend/` as a free static [Hugging Face Space](https://huggingface.co/docs/hub/spaces-sdks-static).
+Any static host (GitHub Pages, Netlify) works the same way.
 
 ### Tests
 
@@ -123,10 +148,11 @@ simple path in 25 random graphs that the leg search finds exactly the safe short
 
 ```bash
 python scripts/build_graph.py --place "Chicago, Illinois, USA"
-GBFS_URL=https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json uvicorn backend.app:app
+python scripts/export_static.py
 ```
 
-Then change the map's starting center in `frontend/app.js`. Large cities take longer to
+Then set `GBFS_URL` (for example `https://gbfs.lyft.com/gbfs/2.3/chi/gbfs.json`) and the
+starting center in `frontend/app.js`; for the API, set the `GBFS_URL` environment variable. Large cities take longer to
 download and need more memory.
 
 ## API
@@ -154,7 +180,8 @@ Returns 422 with an explanation when no safe route exists.
 ## Data & licenses
 
 - Map and street data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), ODbL.
-  Generated files in `data/` and `cache/` are not committed; rebuild them with the script.
+  Generated files in `data/`, `frontend/data/` and `cache/` are not committed; rebuild them
+  with the scripts.
 - Base map tiles from [OpenFreeMap](https://openfreemap.org).
 - Bike-share data from the Madison BCycle GBFS feed. Check your system's feed license before
   using it elsewhere.
