@@ -6,7 +6,7 @@ Bike directions that follow **your** priorities, not just the shortest line.
 
 **[Try the live demo →](https://zsif-bike-router.static.hf.space)** (Madison, WI; runs entirely in your browser)
 
-![Scenic route along Lake Monona vs. the shortest route through downtown Madison](docs/screenshot.jpg)
+![Presets and battery mode changing a route across Madison: fastest, commute, scenic, city buzz, then an e-bike at 30%, 12% and 5% charge](docs/demo.gif)
 
 Mapping apps give cyclists one or two route options. This one lets you say what you
 care about and see what it costs you:
@@ -40,10 +40,11 @@ GBFS feed (live) ─────────────────────
 
 The Python backend is the reference implementation, with the tests and an HTTP API. For the
 demo, [`frontend/router.js`](frontend/router.js) ports the same routing and battery planner to
-JavaScript and runs it in a Web Worker, so the site is just static files: the graph ships as an
-8.7 MB binary (3.2 MB gzipped) and dock data comes straight from the GBFS feed. Across 90 random
-trips the two versions pick the same routes and swaps, with distances within 2 m (the browser
-stores coordinates as 32-bit floats).
+JavaScript and runs it in a Web Worker, so the site is just static files: the graph ships as a
+9.1 MB binary (3.6 MB gzipped) and dock data comes straight from the GBFS feed. On random trips
+across Madison the two versions pick the same routes and swaps, with distances within 2 m (edge
+lengths are stored as 32-bit floats); when two docks on a route are equally good, either may be
+chosen. CI checks the same agreement on random graphs.
 
 **Scoring (offline).** Each street segment gets three scores between 0 and 1:
 

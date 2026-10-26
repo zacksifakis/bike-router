@@ -23,8 +23,9 @@ def main():
     index = {name: i for i, name in enumerate(table)}
 
     arrays = {
-        "node_lat": z["node_lat"].astype("<f4"),
-        "node_lon": z["node_lon"].astype("<f4"),
+        # Full precision so snapping a click to the nearest node matches the Python backend.
+        "node_lat": z["node_lat"].astype("<f8"),
+        "node_lon": z["node_lon"].astype("<f8"),
         "edge_u": z["edge_u"].astype("<i4"),
         "edge_v": z["edge_v"].astype("<i4"),
         "length": z["length"].astype("<f4"),
@@ -42,7 +43,7 @@ def main():
     meta, offset = {}, 0
     with open(OUT / "graph.bin", "wb") as f:
         for key, arr in arrays.items():
-            pad = -offset % 4  # typed arrays need aligned starts
+            pad = -offset % 8  # typed arrays need aligned starts
             f.write(b"\0" * pad)
             offset += pad
             meta[key] = {"offset": offset, "length": int(arr.size), "dtype": arr.dtype.str}

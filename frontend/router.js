@@ -88,7 +88,7 @@ export async function loadGraph(base) {
     fetch(`${base}graph.json`).then((r) => r.json()),
     fetch(`${base}graph.bin`).then((r) => r.arrayBuffer()),
   ]);
-  const TYPES = { "<f4": Float32Array, "<i4": Int32Array, "<u2": Uint16Array };
+  const TYPES = { "<f8": Float64Array, "<f4": Float32Array, "<i4": Int32Array, "<u2": Uint16Array };
   const arrays = {};
   for (const [key, { offset, length, dtype }] of Object.entries(meta.arrays)) {
     arrays[key] = new TYPES[dtype](buf, offset, length);
